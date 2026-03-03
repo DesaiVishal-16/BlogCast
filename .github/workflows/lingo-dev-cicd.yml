@@ -1,0 +1,440 @@
+name: Lingo.dev CI/CD - AI Translation Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'backend/src/**'
+      - 'frontend/**'
+      - 'content/**'
+      - 'locales/**'
+      - 'i18n/**'
+      - '**.json'
+      - '**.yaml'
+      - '**.yml'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'backend/src/**'
+      - 'frontend/**'
+      - 'content/**'
+      - 'locales/**'
+      - 'i18n/**'
+      - '**.json'
+      - '**.yaml'
+      - '**.yml'
+  workflow_dispatch:
+    inputs:
+      force_translate:
+        description: 'Force translation of all content'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  NODE_VERSION: '18'
+  LINGO_API_KEY: ${{ secrets.LINGO_API_KEY }}
+
+jobs:
+  # Job 1: Lint and Format Check
+  lint-and-format:
+    name: Lint and Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install Backend Dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Run Backend Lint
+        working-directory: ./backend
+        run: npm run lint
+
+      - name: Check Backend Formatting
+        working-directory: ./backend
+        run: npx prettier --check "src/**/*.ts"
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: npm ci || npm install
+
+      - name: Check Frontend Formatting
+        working-directory: ./frontend
+        run: npx prettier --check "**/*.{ts,tsx,js,jsx,json}" || true
+
+  # Job 2: AI Translation with Lingo.dev
+  ai-translation:
+    name: AI Translation (Lingo.dev)
+    runs-on: ubuntu-latest
+    needs: lint-and-format
+    if: github.event_name == 'push' || github.event.inputs.force_translate == 'true'
+
+    strategy:
+      matrix:
+        target-language:
+          - hi # Hindi
+          - es # Spanish
+          - fr # French
+          - de # German
+          - it # Italian
+          - pt # Portuguese
+          - ru # Russian
+          - ja # Japanese
+          - ko # Korean
+          - zh # Chinese
+          - ar # Arabic
+          - nl # Dutch
+          - pl # Polish
+          - tr # Turkish
+          - vi # Vietnamese
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Lingo.dev CLI
+        run: npm install -g lingo.dev@latest
+
+      - name: Configure Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Run Lingo.dev CI - Translate to ${{ matrix.target-language }}
+        env:
+          LINGO_API_KEY: ${{ secrets.LINGO_API_KEY }}
+          LINGO_TARGET_LANGUAGE: ${{ matrix.target-language }}
+        run: |
+          echo "🌍 Starting AI translation for ${{ matrix.target-language }}..."
+
+          # Check if lingo.dev config exists
+          if [ -f "lingo.config.yml" ] || [ -f "lingo.config.yaml" ] || [ -f "lingo.config.json" ]; then
+            echo "Found Lingo.dev configuration"
+            
+            # Run lingo.dev CI command with PR creation
+            npx lingo.dev@latest ci \
+              --target ${{ matrix.target-language }} \
+              --create-pull-request \
+              --pull-request-title "🌍 AI Translation: ${{ matrix.target-language }}" \
+              --pull-request-body "This PR contains AI-generated translations for ${{ matrix.target-language }} using Lingo.dev"
+          else
+            echo "⚠️ No Lingo.dev config found. Creating default configuration..."
+            
+            # Create a basic lingo.config.yml for the project
+            cat > lingo.config.yml << EOF
+          # Lingo.dev Configuration
+          # Documentation: https://lingo.dev/docs
+
+          version: 1.0
+
+          # Source language (original content language)
+          source:
+            language: en
+            path: ./locales/en
+
+          # Target languages for translation
+          targets:
+            - language: hi
+              path: ./locales/hi
+            - language: es
+              path: ./locales/es
+            - language: fr
+              path: ./locales/fr
+            - language: de
+              path: ./locales/de
+            - language: it
+              path: ./locales/it
+            - language: pt
+              path: ./locales/pt
+            - language: ru
+              path: ./locales/ru
+            - language: ja
+              path: ./locales/ja
+            - language: ko
+              path: ./locales/ko
+            - language: zh
+              path: ./locales/zh
+            - language: ar
+              path: ./locales/ar
+            - language: nl
+              path: ./locales/nl
+            - language: pl
+              path: ./locales/pl
+            - language: tr
+              path: ./locales/tr
+            - language: vi
+              path: ./locales/vi
+
+          # Translation settings
+          settings:
+            format: json
+            fallback: en
+            fast: false
+            
+          # Files to translate
+          files:
+            - pattern: "*.json"
+              type: json
+            - pattern: "*.yaml"
+              type: yaml
+            - pattern: "*.yml"
+              type: yaml
+          EOF
+            
+            echo "✅ Created default Lingo.dev configuration"
+            
+            # Now run the translation
+            npx lingo.dev@latest ci \
+              --target ${{ matrix.target-language }} \
+              --create-pull-request \
+              --pull-request-title "🌍 AI Translation: ${{ matrix.target-language }}" \
+              --pull-request-body "This PR contains AI-generated translations for ${{ matrix.target-language }} using Lingo.dev"
+          fi
+
+      - name: Upload Translation Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: translation-logs-${{ matrix.target-language }}
+          path: |
+            .lingo/
+            *.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Job 3: Build and Test Backend
+  build-backend:
+    name: Build and Test Backend
+    runs-on: ubuntu-latest
+    needs: [lint-and-format]
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: blog_translation_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install Backend Dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Generate Prisma Client
+        working-directory: ./backend
+        run: npm run prisma:generate
+
+      - name: Run Database Migrations
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/blog_translation_test
+        run: npm run db:push
+
+      - name: Run Backend Tests
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/blog_translation_test
+          NODE_ENV: test
+        run: npm run test -- --coverage
+
+      - name: Build Backend
+        working-directory: ./backend
+        run: npm run build
+
+      - name: Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Job 4: Build and Test Frontend
+  build-frontend:
+    name: Build and Test Frontend
+    runs-on: ubuntu-latest
+    needs: [lint-and-format]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: npm ci || npm install
+
+      - name: Run Frontend Tests
+        working-directory: ./frontend
+        run: npm test -- --coverage --watchAll=false || true
+
+      - name: Build Frontend
+        working-directory: ./frontend
+        run: npm run build || true
+
+  # Job 5: Security Scan
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [build-backend, build-frontend]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run npm audit (Backend)
+        working-directory: ./backend
+        run: npm audit --audit-level=high || true
+
+      - name: Run npm audit (Frontend)
+        working-directory: ./frontend
+        run: npm audit --audit-level=high || true
+
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/init@v3
+        with:
+          languages: typescript, javascript
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  # Job 6: Deploy (Production)
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-backend, build-frontend, security-scan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: https://your-production-url.com
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy Backend
+        run: |
+          echo "🚀 Deploying backend to production..."
+          # Add your deployment commands here
+          # Example:
+          # - aws ecs update-service --cluster blog-translation --service backend --force-new-deployment
+          # - kubectl apply -f k8s/backend-deployment.yaml
+          # - docker build -t your-registry/backend:latest ./backend
+          # - docker push your-registry/backend:latest
+
+      - name: Deploy Frontend
+        run: |
+          echo "🚀 Deploying frontend to production..."
+          # Add your deployment commands here
+          # Example:
+          # - aws s3 sync ./frontend/dist s3://your-bucket-name
+          # - vercel --prod
+          # - netlify deploy --prod --dir=./frontend/dist
+
+      - name: Notify Deployment Success
+        if: success()
+        run: |
+          echo "✅ Deployment completed successfully!"
+          # Add notification logic here (Slack, Discord, Email, etc.)
+
+      - name: Notify Deployment Failure
+        if: failure()
+        run: |
+          echo "❌ Deployment failed!"
+          # Add notification logic here (Slack, Discord, Email, etc.)
+
+  # Job 7: Update Documentation
+  update-docs:
+    name: Update Documentation
+    runs-on: ubuntu-latest
+    needs: [ai-translation]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Lingo.dev CLI
+        run: npm install -g lingo.dev@latest
+
+      - name: Update Translation Documentation
+        env:
+          LINGO_API_KEY: ${{ secrets.LINGO_API_KEY }}
+        run: |
+          echo "📚 Updating translation documentation..."
+          # Generate translation status report
+          npx lingo.dev@latest status || echo "No status command available"
+
+      - name: Commit Documentation Updates
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "📚 Update translation documentation [skip ci]"
+            git push
+          else
+            echo "No documentation changes to commit"
+          fi

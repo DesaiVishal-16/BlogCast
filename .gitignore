@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+*.log
+
+# Build outputs
+dist/
+build/
+out/
+
+# Environment
+
+# IDE
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Database
+*.db
+*.sqlite
+
+# Audio files
+*.mp3
+*.wav
+
+# Lingo.dev
+.lingo/
+config.bat
